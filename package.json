@@ -1,7 +1,7 @@
 {
-  "name": "masroof-students-finance",
+  "name": "masroof-lite",
+  "version": "2.0.0",
   "private": true,
-  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
