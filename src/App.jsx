@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { monthComparison, duplicateExpense, getExpenseVisual, backupIsDue } from './finance.js';
 
 const STORE = 'masroof-lite-v2';
 const OLD_STORE = 'masroof-ui-v1';
+const LAST_BACKUP = 'masroof-lite-last-backup-v3';
+const BACKUP_DISMISS = 'masroof-lite-backup-dismiss-v3';
+const storageRead = key => { try { return localStorage.getItem(key); } catch { return null; } };
+const storageWrite = (key, val) => { try { localStorage.setItem(key, val); } catch { /* Saving the core data still gets its own error state. */ } };
 const GRADES = [{ id: 'first', name: 'أولى ثانوي', fee: 150 }, { id: 'second', name: 'تانية ثانوي', fee: 200 }];
 const CATEGORIES = ['متفرقات', 'كلية', 'مواصلات', 'أكل وشرب', 'خروجات', 'مشتريات', 'اشتراكات'];
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -51,6 +56,17 @@ function Icon({name,size=20}) {
   calendar:<><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/></>,
   warning:<><path d="M12 3 2 21h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></>,
   info:<><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></>,
+  repeat:<><path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></>,
+  bus:<><rect x="4" y="3" width="16" height="17" rx="3"/><path d="M4 11h16M8 16h.01M16 16h.01M7 20v2M17 20v2"/></>,
+  book:<><path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1Zm0 0v14"/></>,
+  food:<><path d="M4 3v7a3 3 0 0 0 6 0V3M7 3v18M17 3c-3 4-3 9 0 12h3V3h-3Zm3 12v6"/></>,
+  bag:<><path d="M4 8h16l-1 13H5L4 8ZM9 9V6a3 3 0 0 1 6 0v3"/></>,
+  wifi:<><path d="M2 9a16 16 0 0 1 20 0M5 13a11 11 0 0 1 14 0M8 17a6 6 0 0 1 8 0M12 21h.01"/></>,
+  cup:<><path d="M4 7h14v8a6 6 0 0 1-12 0V7ZM18 9h2a2 2 0 0 1 0 4h-2M4 21h16"/></>,
+  heart:<><path d="M20.8 5.5a5.3 5.3 0 0 0-7.5 0L12 6.8l-1.3-1.3a5.3 5.3 0 0 0-7.5 7.5L12 21l8.8-8a5.3 5.3 0 0 0 0-7.5Z"/></>,
+  dumbbell:<><path d="m5 8 11 11M3 6l4 4M1.5 8l4-4M16 18l4-4M17.5 20l4-4"/></>,
+  sparkle:<><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z"/></>,
+  chart:<><path d="M4 20V4M4 20h17M8 16l4-5 3 2 5-7"/></>,
  };
  return <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{shapes[name]||shapes.info}</svg>;
 }
@@ -127,16 +143,20 @@ export default function App(){
  const [db,setDb]=useState(load);
  const [screen,setScreen]=useState('home');const [month,setMonth]=useState(currentMonth);const [grade,setGrade]=useState('second');
  const [modal,setModal]=useState(null);const [toast,setToast]=useState('');const [saveError,setSaveError]=useState(false);const [viewAll,setViewAll]=useState(false);
- const inputRef=useRef();const firstSave=useRef(true);
+ const inputRef=useRef();
+ const [lastBackupAt,setLastBackupAt]=useState(()=>storageRead(LAST_BACKUP));
+ const [backupDismissedAt,setBackupDismissedAt]=useState(()=>Number(storageRead(BACKUP_DISMISS))||0);
  useEffect(()=>{
   try{localStorage.setItem(STORE,JSON.stringify(db));setSaveError(false);}catch{setSaveError(true);}
-  if(firstSave.current) firstSave.current=false;
  },[db]);
  const incomeAll=sum(db.payments),expenseAll=sum(db.expenses),saveMove=sum(db.savings);
  const saved=(Number(db.settings.openingSavings)||0)+saveMove;
  const cash=db.settings.openingCash===null?null:Number(db.settings.openingCash)+incomeAll-expenseAll-saveMove;
  const monthlyExpenses=useMemo(()=>db.expenses.filter(e=>toMonth(e.date)===month).sort((a,b)=>b.date.localeCompare(a.date)||String(b.id).localeCompare(String(a.id))),[db.expenses,month]);
  const monthlySpend=sum(monthlyExpenses);
+ const compare=useMemo(()=>monthComparison(db.expenses,month),[db.expenses,month]);
+ const hasRecords=db.expenses.length>0||db.students.length>0||db.payments.length>0||db.savings.length>0||db.settings.openingCash!==null;
+ const showBackupReminder=hasRecords&&backupIsDue(lastBackupAt)&&Date.now()-backupDismissedAt>24*60*60*1000;
  const monthlyIncome=sum(db.payments.filter(p=>toMonth(p.date)===month));
  const active=db.students.filter(s=>studentIsActive(s,month));
  const paidFor=s=>sum(db.payments.filter(p=>p.studentId===s.id&&p.month===month));
@@ -146,6 +166,7 @@ export default function App(){
  const allMonthExpenses=viewAll?monthlyExpenses:monthlyExpenses.slice(0,6);
  const message=t=>{setToast(t);};
  function updateExpense(item){setDb(d=>({...d,expenses:[...d.expenses.filter(e=>e.id!==item.id),item]}));message('اتحفظ المصروف.');}
+ function repeatExpense(item){const copy=duplicateExpense(item,today(),uid());setDb(d=>({...d,expenses:[...d.expenses,copy]}));if(month!==currentMonth())setMonth(currentMonth());message(`اتكرر مصروف ${money(item.amount)} بتاريخ النهارده.`);}
  function removeExpense(item){if(window.confirm(`تمسح مصروف ${money(item.amount)}؟`)){setDb(d=>({...d,expenses:d.expenses.filter(e=>e.id!==item.id)}));message('المصروف اتمسح.');}}
  function addStudent(s){if(db.students.some(x=>x.id!==s.id&&x.grade===s.grade&&x.name.trim()===s.name.trim()))return 'الاسم ده موجود في نفس الدفعة.';setDb(d=>({...d,students:[...d.students.filter(x=>x.id!==s.id),s]}));message('الطالب اتحفظ.');return null;}
  function bulkAdd(names,g,m){const normalized=names.map(x=>x.toLocaleLowerCase());if(new Set(normalized).size!==names.length)return 'فيه أسماء مكررة في اللي كتبته.';const existed=new Set(db.students.filter(s=>s.grade===g).map(x=>x.name.toLocaleLowerCase()));if(normalized.some(x=>existed.has(x)))return 'فيه أسماء مسجلة بالفعل في الدفعة.';const fee=GRADES.find(x=>x.id===g).fee;setDb(d=>({...d,students:[...d.students,...names.map(name=>({id:uid(),name,grade:g,fee,joinedAt:m,leftAt:null}))]}));message(`${names.length} طالب اتضافوا.`);return null;}
@@ -156,7 +177,8 @@ export default function App(){
  function balanceSave(currentCash,currentSaved){const nonOpeningCash=incomeAll-expenseAll-saveMove;const openingCash=currentCash-nonOpeningCash;const openingSavings=currentSaved-saveMove;setDb(d=>({...d,settings:{...d.settings,openingCash,openingSavings}}));message('اتظبط الرصيد الحالي.');}
  function expenseText(){return `📒 مصاريف ${monthLabel(month)}\n${[...monthlyExpenses].reverse().map(e=>`• ${e.description||e.category||'مصروف'}: ${fullMoney(e.amount)} — ${dateLabel(e.date)}`).join('\n')||'• مفيش مصاريف مسجلة'}\n————\nالإجمالي: ${fullMoney(monthlySpend)}`;}
  async function copyExpenses(){const ok=await copyText(expenseText());message(ok?'اتنسخت مصروفات الشهر بالتواريخ.':'النسخ اتمنع من المتصفح. جرّبه من رابط HTTPS.');}
- function backup(){downloadFile(JSON.stringify({version:2,exportedAt:new Date().toISOString(),...db},null,2),`masroof-backup-${today()}.json`);message('النسخة الاحتياطية اتنزّلت. احتفظ بيها بره المتصفح.');}
+ function backup(){try{downloadFile(JSON.stringify({version:2,exportedAt:new Date().toISOString(),...db},null,2),`masroof-backup-${today()}.json`);const stamp=new Date().toISOString();storageWrite(LAST_BACKUP,stamp);setLastBackupAt(stamp);message('بدأ تحميل النسخة الاحتياطية. اتأكد إن ملف JSON اتحفظ عندك.');}catch{message('حصلت مشكلة أثناء تجهيز النسخة الاحتياطية. جرّب تاني.');}}
+ function dismissBackup(){const stamp=Date.now();storageWrite(BACKUP_DISMISS,String(stamp));setBackupDismissedAt(stamp);}
  async function restore(e){const file=e.target.files?.[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(!valid(parsed))throw Error('wrong data');if(window.confirm('الاسترجاع هيستبدل البيانات الحالية كلها. اتأكد إنك واخد نسخة من الحالية الأول.')){setDb(hydrate(parsed));message('اتسترجعت البيانات.');}}catch{message('الملف مش نسخة صالحة من مصروف.');}e.target.value='';}
  function removeSaving(id){if(window.confirm('تحذف حركة التحويش دي؟'))setDb(d=>({...d,savings:d.savings.filter(x=>x.id!==id)}));}
  const tabs=[['home','الرئيسية','home'],['expenses','المصاريف','receipt'],['students','الشهريات','people'],['savings','التحويش','bank'],['settings','إعدادات','gear']];
@@ -165,16 +187,18 @@ export default function App(){
   <div className="layout"><nav className="nav-desktop" aria-label="القائمة الرئيسية">{tabs.map(([key,title,icon])=><button key={key} className={screen===key?'active':''} onClick={()=>{setScreen(key);setViewAll(false);}}><Icon name={icon} size={20}/>{title}</button>)}</nav>
   <main className="content">
     {saveError&&<div className="alert"><Icon name="warning"/> المتصفح مش قادر يحفظ التغييرات. نزّل نسخة احتياطية حالًا.</div>}
+    {showBackupReminder&&(screen==='home'||screen==='settings')&&<div className="backup-reminder" role="status"><div className="reminder-text"><Icon name="warning" size={19}/><div><strong>محتاج نسخة احتياطية</strong><small>{lastBackupAt?'عدّى أسبوع على آخر نسخة مسجلة.':'مفيش نسخة احتياطية مسجلة على المتصفح ده.'} البيانات عندك على الجهاز بس.</small></div></div><div className="reminder-actions"><button className="btn secondary tiny" onClick={backup}><Icon name="download" size={15}/> نزّل نسخة</button><button className="reminder-later" onClick={dismissBackup} aria-label="ذكرني بكرة">بعدين</button></div></div>}
     {screen==='home'&&<>
      <div className="page-heading"><div><p className="eyebrow">{monthLabel(month)}</p><h1>أهلًا بيك في مصروف</h1><p>كل اللي محتاج تعرفه عن فلوسك، من غير تعقيد.</p></div></div>
      <section className="hero"><div><span className="hero-label">المتاح تصرفه دلوقتي</span><strong className="hero-value">{cash===null?'—':number(cash)} <small>جنيه</small></strong>{cash===null?<button className="hero-inline" onClick={()=>setModal({type:'balance'})}>حدد رصيدك الحالي <Icon name="arrow" size={16}/></button>:<span className="hero-sub">مستبعد منه المبلغ المحوش</span>}</div><div className="hero-side"><span>محوش لحد دلوقتي</span><strong>{money(saved)}</strong><button onClick={()=>setModal({type:'savings'})}>حوش مبلغ <Icon name="plus" size={15}/></button></div></section>
      <div className="stats"><div className="stat"><span>صرفت الشهر ده</span><strong>{money(monthlySpend)}</strong><small>{monthlyExpenses.length} عملية</small></div><div className="stat"><span>دخل استلمته الشهر ده</span><strong>{money(monthlyIncome)}</strong><small>حسب تاريخ الاستلام</small></div><div className="stat"><span>شهريات لسه مطلوبة</span><strong>{money(uncollected)}</strong><small>غير محسوبة في الرصيد</small></div></div>
      <div className="main-actions"><button className="btn primary large" onClick={()=>setModal({type:'expense'})}><Icon name="plus"/> إضافة مصروف</button><button className="btn secondary large" onClick={copyExpenses}><Icon name="copy"/> نسخ المصروفات</button></div>
-     <section className="panel"><div className="panel-head"><h2>آخر المصروفات</h2><button className="link-btn" onClick={()=>setScreen('expenses')}>عرض الكل <Icon name="arrow" size={15}/></button></div><ExpenseRows expenses={monthlyExpenses.slice(0,5)} edit={e=>setModal({type:'expense',item:e})} remove={removeExpense}/>{monthlyExpenses.length===0&&<div className="empty"><Icon name="receipt" size={30}/><b>لسه مفيش مصاريف في الشهر ده</b><p>سجل أول مصروف، حتى لو 10 جنيه.</p></div>}</section>
+     <section className="panel"><div className="panel-head"><h2>آخر المصروفات</h2><button className="link-btn" onClick={()=>setScreen('expenses')}>عرض الكل <Icon name="arrow" size={15}/></button></div><ExpenseRows expenses={monthlyExpenses.slice(0,5)} edit={e=>setModal({type:'expense',item:e})} remove={removeExpense} repeat={repeatExpense}/>{monthlyExpenses.length===0&&<div className="empty"><Icon name="receipt" size={30}/><b>لسه مفيش مصاريف في الشهر ده</b><p>سجل أول مصروف، حتى لو 10 جنيه.</p></div>}</section>
     </>}
     {screen==='expenses'&&<><div className="page-heading"><div><p className="eyebrow">{monthLabel(month)}</p><h1>المصاريف</h1><p>التاريخ مكتوب تحت كل مصروف، والنسخ بيجمع الشهر كله.</p></div><strong className="page-total">{money(monthlySpend)}</strong></div>
     <div className="main-actions"><button className="btn primary" onClick={()=>setModal({type:'expense'})}><Icon name="plus"/> مصروف جديد</button><button className="btn secondary" onClick={copyExpenses}><Icon name="copy"/> نسخ مصروفات الشهر</button></div>
-    <section className="panel expense-panel"><div className="panel-head"><h2>سجل {monthLabel(month)}</h2><small>{monthlyExpenses.length} مصروف</small></div>{monthlyExpenses.length?<ExpenseRows expenses={allMonthExpenses} edit={e=>setModal({type:'expense',item:e})} remove={removeExpense}/>:<div className="empty"><b>مفيش مصروفات مسجلة</b><p>اضغط «مصروف جديد» وابدأ.</p></div>}{monthlyExpenses.length>6&&!viewAll&&<button className="more-btn" onClick={()=>setViewAll(true)}>عرض باقي المصروفات ({monthlyExpenses.length-6})</button>}</section>
+    <section className="panel expense-panel"><div className="panel-head"><h2>سجل {monthLabel(month)}</h2><small>{monthlyExpenses.length} مصروف</small></div>{monthlyExpenses.length?<ExpenseRows expenses={allMonthExpenses} edit={e=>setModal({type:'expense',item:e})} remove={removeExpense} repeat={repeatExpense}/>:<div className="empty"><b>مفيش مصروفات مسجلة</b><p>اضغط «مصروف جديد» وابدأ.</p></div>}{monthlyExpenses.length>6&&!viewAll&&<button className="more-btn" onClick={()=>setViewAll(true)}>عرض باقي المصروفات ({monthlyExpenses.length-6})</button>}</section>
+    <MonthCompare data={compare} month={month}/>
     <p className="note">الزرار بينسخ التاريخ، الوصف، قيمة كل مصروف، وإجمالي الشهر — جاهز للصق في واتساب أو النوتس.</p>
     </>}
     {screen==='students'&&<><div className="page-heading"><div><p className="eyebrow">{monthLabel(month)}</p><h1>شهريات الطلبة</h1><p>اختار دفعة، واضغط تحصيل جنب اللي دفع.</p></div></div>
@@ -185,7 +209,7 @@ export default function App(){
     {db.students.some(s=>s.grade===grade&&s.leftAt)&&<details className="panel folded"><summary>الطلبة المتوقفين</summary>{db.students.filter(s=>s.grade===grade&&s.leftAt).map(s=><div className="history-row" key={s.id}><div><b>{s.name}</b><small>متوقف من {monthLabel(s.leftAt)}</small></div><button className="btn secondary tiny" onClick={()=>toggleStudent(s)}>إعادة تفعيل</button></div>)}</details>}
     </>}
     {screen==='savings'&&<><div className="page-heading"><div><p className="eyebrow">تحويشك</p><h1>فلوس على جنب</h1><p>أي مبلغ بتحوشه مش بيتحسب مصروف.</p></div></div><section className="savings-card"><span>إجمالي التحويش الحالي</span><strong>{money(saved)}</strong><p>فلوس منفصلة عن المتاح للصرف.</p></section><div className="main-actions"><button className="btn primary" onClick={()=>setModal({type:'savings'})}><Icon name="plus"/> حوش أو رجّع مبلغ</button><button className="btn secondary" onClick={()=>setModal({type:'balance'})}><Icon name="edit"/> ظبط الرصيد</button></div><section className="panel"><div className="panel-head"><h2>حركات التحويش</h2><small>{db.savings.length} حركة</small></div>{db.savings.length?[...db.savings].sort((a,b)=>b.date.localeCompare(a.date)).map(x=><div className="history-row" key={x.id}><div><b>{x.amount>0?'حوشّت':'رجّعت'} {money(Math.abs(x.amount))}</b><small>{dateLabel(x.date)}{x.note?` • ${x.note}`:''}</small></div><button className="icon-btn danger" aria-label="حذف الحركة" onClick={()=>removeSaving(x.id)}><Icon name="trash" size={17}/></button></div>):<div className="empty"><b>لسه مفيش حركات تحويش</b><p>ممكن تظبط المبلغ المحوش حاليًا من زر «ظبط الرصيد».</p></div>}</section></>}
-    {screen==='settings'&&<><div className="page-heading"><div><h1>الإعدادات والنسخ الاحتياطية</h1><p>بياناتك محفوظة محليًا على الجهاز والمتصفح ده.</p></div></div><section className="panel settings-panel"><h2>الفلوس والحساب</h2><p>لو بدأت استخدام الموقع في نص الشهر، حدّد الفلوس اللي معاك بالفعل بعد المصاريف القديمة.</p><button className="btn secondary" onClick={()=>setModal({type:'balance'})}><Icon name="edit"/> ضبط الرصيد المتاح والتحويش</button></section><section className="panel settings-panel"><h2>حماية بياناتك</h2><p><strong>مهم:</strong> مفيش مزامنة سحابية في النسخة دي. مسح بيانات المتصفح أو تغيير الجهاز ممكن يضيّع البيانات. نزّل نسخة احتياطية بعد كل تحديث مهم.</p><div className="main-actions"><button className="btn primary" onClick={backup}><Icon name="download"/> تنزيل نسخة JSON</button><button className="btn secondary" onClick={()=>inputRef.current?.click()}><Icon name="upload"/> استرجاع نسخة</button></div></section><section className="panel settings-panel"><h2>تثبيت الاختصار على الموبايل</h2><p>من Chrome افتح رابط الموقع، واضغط القائمة (⋮) ثم «Add to Home screen» أو «Install app». هتظهر أيقونة مصروف الفحمي والبرتقالي.</p><div className="icon-sample"><img src="/icons/masroof-192.png" alt="أيقونة مصروف"/><span>مصروف</span></div></section></>}
+    {screen==='settings'&&<><div className="page-heading"><div><h1>الإعدادات والنسخ الاحتياطية</h1><p>بياناتك محفوظة محليًا على الجهاز والمتصفح ده.</p></div></div><section className="panel settings-panel"><h2>الفلوس والحساب</h2><p>لو بدأت استخدام الموقع في نص الشهر، حدّد الفلوس اللي معاك بالفعل بعد المصاريف القديمة.</p><button className="btn secondary" onClick={()=>setModal({type:'balance'})}><Icon name="edit"/> ضبط الرصيد المتاح والتحويش</button></section><section className="panel settings-panel"><h2>حماية بياناتك</h2><p><strong>مهم:</strong> مفيش مزامنة سحابية في النسخة دي. مسح بيانات المتصفح أو تغيير الجهاز ممكن يضيّع البيانات. نزّل نسخة احتياطية بعد كل تحديث مهم.</p><div className="main-actions"><button className="btn primary" onClick={backup}><Icon name="download"/> تنزيل نسخة JSON</button><button className="btn secondary" onClick={()=>inputRef.current?.click()}><Icon name="upload"/> استرجاع نسخة</button></div><p className="backup-meta">{lastBackupAt?`آخر محاولة تنزيل نسخة: ${new Date(lastBackupAt).toLocaleDateString('ar-EG-u-nu-latn')}`:'لسه مفيش نسخة احتياطية مسجلة هنا.'}</p></section><section className="panel settings-panel"><h2>تثبيت الاختصار على الموبايل</h2><p>من Chrome افتح رابط الموقع، واضغط القائمة (⋮) ثم «Add to Home screen» أو «Install app». هتظهر أيقونة مصروف الفحمي والبرتقالي.</p><div className="icon-sample"><img src="/icons/masroof-192.png" alt="أيقونة مصروف"/><span>مصروف</span></div></section></>}
     <footer>مصروف — نسخة خفيفة بدون حسابات أو مزامنة سحابية</footer>
   </main></div>
   <nav className="nav-mobile" aria-label="التنقل">{tabs.map(([key,title,icon])=><button key={key} onClick={()=>{setScreen(key);setViewAll(false);window.scrollTo({top:0,behavior:'instant'});}} className={screen===key?'active':''}><Icon name={icon} size={20}/><span>{title}</span></button>)}</nav>
@@ -199,6 +223,30 @@ export default function App(){
   <input ref={inputRef} hidden type="file" accept=".json,application/json" onChange={restore}/>
  </div>;
 }
-function ExpenseRows({expenses,edit,remove}){
- return <div className="expense-list">{expenses.map(e=><div className="expense-row" key={e.id}><span className="expense-marker"><Icon name="receipt" size={17}/></span><div className="expense-detail"><strong>{e.description||e.category||'مصروف'}</strong><small>{dateLabel(e.date)}{e.description&&e.category&&e.category!=='متفرقات'?` • ${e.category}`:''}</small></div><b className="expense-amount">{money(e.amount)}</b><button className="icon-btn" aria-label="تعديل المصروف" title="تعديل" onClick={()=>edit(e)}><Icon name="edit" size={17}/></button><button className="icon-btn danger" aria-label="حذف المصروف" title="حذف" onClick={()=>remove(e)}><Icon name="trash" size={16}/></button></div>)}</div>;
+const expenseVisuals={
+  transport:['bus','مواصلات'], study:['book','كلية ودراسة'], food:['food','أكل وشرب'],
+  shopping:['bag','مشتريات'], subscription:['wifi','اشتراكات'], outing:['cup','خروجات'],
+  fitness:['dumbbell','رياضة'], wellness:['heart','صحة'], misc:['sparkle','متفرقات']
+};
+function ExpenseRows({expenses,edit,remove,repeat}){
+ return <div className="expense-list">{expenses.map(e=>{const type=getExpenseVisual(e);const [icon,label]=expenseVisuals[type];return <div className="expense-row" key={e.id}>
+ <span className={`expense-marker expense-${type}`} title={label}><Icon name={icon} size={17}/></span>
+ <div className="expense-detail"><strong>{e.description||e.category||'مصروف'}</strong><small>{dateLabel(e.date)}{e.description&&e.category&&e.category!=='متفرقات'?` • ${e.category}`:''}</small></div>
+ <b className="expense-amount">{money(e.amount)}</b>
+ <button className="icon-btn repeat-btn" aria-label={`تكرار مصروف ${e.description||e.category||money(e.amount)} بتاريخ اليوم`} title="تكرار المصروف اليوم" onClick={()=>repeat(e)}><Icon name="repeat" size={17}/></button>
+ <button className="icon-btn" aria-label="تعديل المصروف" title="تعديل" onClick={()=>edit(e)}><Icon name="edit" size={17}/></button>
+ <button className="icon-btn danger" aria-label="حذف المصروف" title="حذف" onClick={()=>remove(e)}><Icon name="trash" size={16}/></button>
+ </div>;})}</div>;
+}
+function MonthCompare({data,month}){
+ if(data.isFuture)return null;
+ const {current,earlier,previous,isOngoing,cutoff,previousCutoff,difference,percent,max}=data;
+ return <section className="panel compare-panel" aria-label="مقارنة المصروفات بين الشهور">
+   <div className="panel-head"><h2><Icon name="chart" size={19}/> مقارنة الشهور</h2><small>{isOngoing?'لنفس عدد الأيام':'شهر كامل'}</small></div>
+   <div className="compare-content">
+     <div className="compare-line"><div className="compare-label"><span>{monthLabel(month)}{isOngoing?` (1–${cutoff})`:''}</span><b>{money(current)}</b></div><div className="compare-track"><span className="compare-bar current" style={{width:`${current/max*100}%`}}/></div></div>
+     <div className="compare-line"><div className="compare-label"><span>{monthLabel(previous)}{isOngoing?` (1–${previousCutoff})`:''}</span><b>{money(earlier)}</b></div><div className="compare-track"><span className="compare-bar previous" style={{width:`${earlier/max*100}%`}}/></div></div>
+     <p className="compare-foot">{earlier===0?'مفيش مصاريف مسجلة للشهر السابق، فالمقارنة مش كافية للحكم على صرفك.':difference===0?'مصروفك مساوي للشهر السابق في الفترة المقارنة.':`${difference>0?'صرفت زيادة':'وفّرت'} ${money(Math.abs(difference))} (${number(Math.abs(percent))}%) عن الفترة السابقة.`}</p>
+   </div>
+ </section>;
 }
