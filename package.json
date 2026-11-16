@@ -1,13 +1,13 @@
 {
   "name": "masroof-lite",
-  "version": "2.0.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/finance.test.js"
+    "test": "node --test src/finance.test.js src/ledger.test.js"
   },
   "dependencies": {
     "react": "^19.2.0",

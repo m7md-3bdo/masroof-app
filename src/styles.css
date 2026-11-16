@@ -28,3 +28,28 @@
 .compare-track{height:9px;background:#f1eee8;border-radius:10px;overflow:hidden}.compare-bar{display:block;height:100%;border-radius:10px;min-width:0}
 .compare-bar.current{background:#e77954}.compare-bar.previous{background:#adb0b9}.compare-foot{font-size:12px;color:#747989;margin:13px 0 0;line-height:1.8}
 @media(max-width:600px){.backup-reminder{align-items:flex-start;flex-direction:column}.reminder-actions{align-self:flex-end}.compare-content{padding:12px 14px 17px}.expense-row{gap:6px}.expense-row .icon-btn{width:26px}.expense-row .repeat-btn{flex:none}}
+/* v4 additions — same charcoal/cream/orange visual language */
+.group-tabs{display:flex;gap:9px;overflow-x:auto;scrollbar-width:thin;padding:2px 0 13px;margin-bottom:12px;max-width:100%}
+.group-tabs button{flex:0 0 auto;min-width:132px;max-width:220px;background:#fff;border:1px solid #e5e2dc;color:#545d6a;border-radius:12px;padding:10px 13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;text-align:right;font-size:12px;font-weight:700}
+.group-tabs button span{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.group-tabs button small{flex-basis:100%;font-weight:400;font-size:11px;color:#94949c}
+.group-tabs button.selected{color:#fff;background:#252d3d;border-color:#252d3d}
+.group-tabs button.selected small{color:#ffd0ac}
+.grade-card .tiny-note{display:block;font-size:11px;color:#a08d80;margin-top:4px}
+.group-options{display:flex;align-items:center;justify-content:flex-start;gap:15px;margin:8px 1px 23px}
+.group-options .link-btn{font-weight:500;color:#7d6b62}
+.group-options .link-btn.destructive{color:#b45041}
+.group-empty{gap:13px}.group-empty .btn{margin-top:4px}
+.student-row .student-name small{line-height:1.5}
+.row-actions{display:flex;align-items:center;gap:8px}
+.migration-note{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid #dfd1bb;background:#fffbf1;border-radius:12px;margin-bottom:14px;color:#6f5840;font-size:12px;line-height:1.6}
+.migration-note span{flex:1}.migration-note button{flex-shrink:0;border:0;color:#ad5838;background:transparent;font-weight:bold}
+.fee-preview{background:#faf7f3;color:#343746;padding:12px 15px;border-radius:10px;font-size:13px;margin:3px 0 12px}
+.fee-preview strong{font-size:19px;margin-inline-start:8px}
+.modal-message{margin:12px 20px}
+.recovery{min-height:90vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:28px;text-align:center;max-width:520px;margin:auto;color:#50362a}
+.recovery h1{font-size:24px;margin:0}.recovery p{font-size:14px;line-height:2}
+@media(max-width:560px){.student-row{gap:5px;padding:12px 7px}.student-row .icon-btn{width:23px;height:27px}.student-row .student-name strong{font-size:12px}.student-row .student-name small{font-size:10px}.student-row .collect-btn,.student-row .paid-btn{min-width:51px;font-size:10px;padding:4px 5px}.grade-card{gap:8px}.migration-note{flex-wrap:wrap}.migration-note button{margin-right:auto}.group-tabs button{min-width:118px}.group-options{flex-wrap:wrap}}
+
+.summary-four{grid-template-columns:repeat(4,minmax(0,1fr))}.summary-four strong{font-size:22px}.summary-four span{line-height:1.6}
+@media(max-width:720px){.summary-four{grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.summary-four strong{font-size:19px}}
