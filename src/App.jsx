@@ -3,7 +3,7 @@ import { monthComparison, duplicateExpense, getExpenseVisual, backupIsDue } from
 import { FA_ICONS } from './fa-icons.js';
 import { defaultData, validLegacy, isV4, migrate, isMonth,
   activeInMonth, groupAt, ruleAt, dueFor, groupFeeAt, collectionFor,
-  totalUncollected, atEffectiveMonth, setStudentPrice, setStudentGroup,
+  monthlyCollectionSummary, rankStudents, searchRankedStudents, atEffectiveMonth, setStudentPrice, setStudentGroup,
   setGroupPrice, canDeleteStudent, canDeleteGroup } from './ledger.js';
 
 const STORE = 'masroof-lite-v4';
@@ -220,17 +220,21 @@ export default function App() {
   const incomeAll = sum(db.payments), expenseAll = sum(db.expenses), saveMove = sum(db.savings);
   const saved = (Number(db.settings.openingSavings)||0)+saveMove;
   const cash = db.settings.openingCash===null ? null : Number(db.settings.openingCash)+incomeAll-expenseAll-saveMove;
-  const uncollected = totalUncollected(db,month);
+  const monthCollections = useMemo(()=>monthlyCollectionSummary(db,month),[db,month]);
   const hasRecords = db.expenses.length>0 || db.students.length>0 || db.groups.length>0 || db.payments.length>0 || db.savings.length>0 || db.settings.openingCash!==null;
   const showBackupReminder = hasRecords && backupIsDue(lastBackupAt) && Date.now()-backupDismissedAt>24*60*60*1000;
   const visibleGroups = db.groups.filter(g=>!g.archivedAt || g.archivedAt>month);
   const archivedGroups = db.groups.filter(g=>g.archivedAt && g.archivedAt<=month);
   const group = visibleGroups.find(g=>g.id===groupId) || visibleGroups[0] || null;
-  const people = db.students.filter(s=>group && groupAt(s,month)===group.id && activeInMonth(s,month,db.groups)).sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+  const people = db.students.filter(s=>group && groupAt(s,month)===group.id && activeInMonth(s,month,db.groups));
+  const rankedPeople = rankStudents(people);
+  const [studentSearch,setStudentSearch] = useState({ groupId: null, month: null, text: '' });
+  const query = studentSearch.groupId===group?.id && studentSearch.month===month ? studentSearch.text : '';
+  const filteredPeople = searchRankedStudents(rankedPeople,query);
+  const changeSearch = text=>setStudentSearch({ groupId: group?.id, month, text });
   const archivedPeople = db.students.filter(s=>group && groupAt(s,month)===group.id && s.leftAt && s.leftAt<=month);
-  const groupDue = sum(people.map(s=>({amount:collectionFor(s,month,db).remaining})));
-  const groupExpected = sum(people.map(s=>({amount:collectionFor(s,month,db).due})));
-  const groupReceived = sum(db.payments.filter(p=>p.month===month && db.students.some(s=>s.id===p.studentId && groupAt(s,month)===group?.id))); // Keep receipts even if a student later stopped.
+  const groupCollections = useMemo(()=>new Map(db.groups.map(g=>[g.id,monthlyCollectionSummary(db,month,g.id)])),[db,month]);
+  const { due: groupExpected, paid: groupReceived, remaining: groupDue } = groupCollections.get(group?.id) || { due: 0, paid: 0, remaining: 0 };
   const payerCount = people.filter(s=>dueFor(s,month,db.groups)>0).length;
   const paidCount = people.filter(s=>{const c=collectionFor(s,month,db);return c.due>0 && c.remaining===0;}).length;
   const exemptCount = people.filter(s=>ruleAt(s,month)?.type==='exempt').length;
@@ -320,7 +324,7 @@ export default function App() {
   return <div className="app">
     <header className="topbar"><div className="head-wrap">
       <div className="identity"><img src="/icons/masroof-192.png" alt="أيقونة مصروف"/><div><strong>مصروف<span>.</span></strong><small>فلوسك، ببساطة</small></div></div>
-      <div className="head-month"><Icon name="calendar" size={17}/><input type="month" aria-label="اختيار الشهر" value={month} onChange={e=>{setMonth(e.target.value);setViewAll(false);}}/></div>
+      <div className="head-month"><Icon name="calendar" size={17}/><input type="month" aria-label="اختيار الشهر" value={month} onChange={e=>{setMonth(e.target.value);setViewAll(false);setStudentSearch({groupId:null,month:null,text:''});}}/></div>
     </div></header>
     <div className="layout">
       <nav className="nav-desktop" aria-label="القائمة الرئيسية">{tabs.map(([key,title,icon])=><button key={key} className={screen===key?'active':''} onClick={()=>{setScreen(key);setViewAll(false);}}><Icon name={icon} size={19}/>{title}</button>)}</nav>
@@ -331,7 +335,7 @@ export default function App() {
         {screen==='home'&&<>
           <div className="page-heading"><div><p className="eyebrow">{monthLabel(month)}</p><h1>أهلًا بيك في مصروف</h1><p>كل اللي محتاج تعرفه عن فلوسك، من غير تعقيد.</p></div></div>
           <section className="hero"><div><span className="hero-label">المتاح تصرفه دلوقتي</span><strong className="hero-value">{cash===null?'—':number(cash)} <small>جنيه</small></strong>{cash===null?<button className="hero-inline" onClick={()=>setModal({type:'balance'})}>حدد رصيدك الحالي <Icon name="arrow" size={16}/></button>:<span className="hero-sub">مستبعد منه المبلغ المحوش</span>}</div><div className="hero-side"><span>محوش لحد دلوقتي</span><strong>{money(saved)}</strong><button onClick={()=>setModal({type:'savings'})}>حوش مبلغ <Icon name="plus" size={15}/></button></div></section>
-          <div className="stats"><div className="stat"><span>صرفت الشهر ده</span><strong>{money(monthlySpend)}</strong><small>{monthlyExpenses.length} عملية</small></div><div className="stat"><span>دخل استلمته الشهر ده</span><strong>{money(monthlyIncome)}</strong><small>بحسب تاريخ استلام الفلوس</small></div><div className="stat"><span>اشتراكات لسه مطلوبة</span><strong>{money(uncollected)}</strong><small>من غير المعفيين والمتوقفين</small></div></div>
+          <div className="stats"><div className="stat"><span>صرفت الشهر ده</span><strong>{money(monthlySpend)}</strong><small>{monthlyExpenses.length} عملية</small></div><div className="stat"><span>دخل استلمته الشهر ده</span><strong>{money(monthlyIncome)}</strong><small>بحسب تاريخ استلام الفلوس</small></div><div className="stat"><span>اشتراكات لسه مطلوبة</span><strong>{money(monthCollections.remaining)}</strong><small>من غير المعفيين والمتوقفين</small></div><div className="stat"><span>إجمالي المستحق للشهر</span><strong>{money(monthCollections.due)}</strong><small>كل المجموعات بعد الحالات الخاصة</small><small>المقبوض عن الاشتراكات: {money(monthCollections.paid)}</small></div></div>
           <div className="main-actions"><button className="btn primary large" onClick={()=>setModal({type:'expense'})}><Icon name="plus"/> إضافة مصروف</button><button className="btn secondary large" onClick={copyExpenses}><Icon name="copy"/> نسخ المصروفات</button></div>
           <section className="panel"><div className="panel-head"><h2>آخر المصروفات</h2><button className="link-btn" onClick={()=>setScreen('expenses')}>عرض الكل <Icon name="arrow" size={15}/></button></div><ExpenseRows expenses={monthlyExpenses.slice(0,5)} edit={e=>setModal({type:'expense',item:e})} remove={removeExpense} repeat={repeatExpense}/>{monthlyExpenses.length===0&&<div className="empty"><Icon name="receipt" size={30}/><b>لسه مفيش مصاريف في الشهر ده</b><p>سجل أول مصروف، حتى لو 10 جنيه.</p></div>}</section>
         </>}
@@ -344,29 +348,31 @@ export default function App() {
         </>}
         {screen==='students'&&<>
           <div className="page-heading"><div><p className="eyebrow">{monthLabel(month)}</p><h1>المجموعات والتحصيل</h1><p>إنت اللي بتحدد أسماء المجموعات وأسعارها، من غير عدد ثابت.</p></div></div>
+          <div className="grade-card collection-overview"><div><span>إجمالي المستحق لكل المجموعات</span><strong>{money(monthCollections.due)}</strong></div><div><span>المقبوض عن الشهر</span><strong>{money(monthCollections.paid)}</strong></div><div><span>المتبقي للتحصيل</span><strong>{money(monthCollections.remaining)}</strong></div><small className="tiny-note">المقبوض حسب شهر الاشتراك، ويشمل دفعات المتوقفين. المتبقي مجموع المستحق لكل طالب بعد دفعاته، من غير خصم أي زيادة دفعها طالب تاني.</small></div>
           <div className="main-actions group-actions"><button className="btn primary" onClick={()=>setModal({type:'group'})}><Icon name="plus"/> مجموعة جديدة</button>{group&&<button className="btn secondary" onClick={()=>setModal({type:'group',group})}><Icon name="edit"/> تعديل المجموعة</button>}</div>
           {visibleGroups.length>0?<>
-            <div className="group-tabs" role="tablist" aria-label="اختيار مجموعة">{visibleGroups.map(g=><button key={g.id} type="button" role="tab" aria-selected={group?.id===g.id} className={group?.id===g.id?'selected':''} onClick={()=>setGroupId(g.id)}><Icon name="groups" size={14}/><span>{g.name}</span><small>{money(groupFeeAt(g,month))}</small></button>)}</div>
+            <div className="group-tabs" role="tablist" aria-label="اختيار مجموعة">{visibleGroups.map(g=><button key={g.id} type="button" role="tab" aria-selected={group?.id===g.id} className={group?.id===g.id?'selected':''} onClick={()=>{setGroupId(g.id);setStudentSearch({groupId:null,month:null,text:''});}}><Icon name="groups" size={14}/><span>{g.name}</span><small>اشتراك {money(groupFeeAt(g,month))}</small><small>المستحق: {money(groupCollections.get(g.id)?.due)}</small></button>)}</div>
             {group&&<>
               <div className="grade-card summary-four"><div><span>المستحق للشهر</span><strong>{money(groupExpected)}</strong><small className="tiny-note">بعد الحالات الخاصة</small></div><div><span>اللي اتسدد</span><strong>{money(groupReceived)}</strong><small className="tiny-note">{paidCount} سددوا من {payerCount}</small></div><div><span>المتبقي للتحصيل</span><strong>{money(groupDue)}</strong><small className="tiny-note">لا يشمل المعفيين</small></div><div><span>الحالات المعفاة</span><strong>{exemptCount}</strong><small className="tiny-note">من {people.length} اسم نشط</small></div></div>
               <div className="main-actions"><button className="btn primary" onClick={()=>setModal({type:'student'})}><Icon name="userPlus"/> إضافة طالب / عميل</button><button className="btn secondary" onClick={()=>setModal({type:'bulk'})}>إضافة أسماء بالجملة</button></div>
-              <section className="panel"><div className="panel-head"><h2>{group.name}</h2><small>{people.length} اسم</small></div>
-                {people.length?people.map(s=>{
+              <section className="panel"><div className="panel-head"><h2>{group.name}</h2><small>{query ? `${filteredPeople.length} من ${people.length}` : people.length} اسم</small></div>
+                <div className="student-search"><input type="search" aria-label="بحث عن طالب نشط بالاسم" placeholder="ابحث عن طالب نشط بالاسم..." value={query} onChange={e=>changeSearch(e.target.value)}/>{query&&<button type="button" className="icon-btn" aria-label="مسح البحث" onClick={()=>changeSearch('')}><Icon name="close" size={18}/></button>}</div>
+                {filteredPeople.length?filteredPeople.map(({student:s,number:studentNumber})=>{
                   const c=collectionFor(s,month,db);
                   const label=c.exempt?'معفى من الاشتراك':c.overpaid?'مدفوع زيادة — راجع السعر':c.remaining===0?'مدفوع بالكامل':c.paid>0?`دفع ${money(c.paid)} من ${money(c.due)}`:`مستحق ${money(c.due)}`;
-                  return <div className="student-row" key={s.id}><div className="student-avatar">{s.name.trim().charAt(0)}</div><div className="student-name"><strong>{s.name}</strong><small>{label}</small></div>
+                  return <div className="student-row" key={s.id}><div className="student-avatar student-number" aria-label={`رقم ${studentNumber}`}>{studentNumber}</div><div className="student-name"><strong>{s.name}</strong><small>{label}</small></div>
                     <button className={(c.exempt||c.remaining===0)?'paid-btn':'collect-btn'} onClick={()=>setModal({type:'payment',student:s})} title="عرض المدفوعات أو إضافة تحصيل">{c.exempt?<><Icon name="check" size={14}/> معفى</>:c.remaining===0?<><Icon name="check" size={14}/> تم</>:'تحصيل'}</button>
                     <button className="icon-btn" aria-label={`تعديل ${s.name}`} title="تعديل" onClick={()=>setModal({type:'student',student:s})}><Icon name="edit" size={15}/></button>
                     <button className="icon-btn" aria-label={`إيقاف ${s.name}`} title="إيقاف (أرشفة)" onClick={()=>toggleStudent(s)}><Icon name="archive" size={15}/></button>
                     <button className="icon-btn danger" aria-label={`حذف ${s.name}`} title={canDeleteStudent(s,db.payments)?'حذف اسم أُضيف بالخطأ':'عنده دفعات؛ استخدم إيقاف'} onClick={()=>deleteStudent(s)}><Icon name="trash" size={15}/></button>
                   </div>;
-                }):<div className="empty"><Icon name="people" size={30}/><b>المجموعة دي لسه فاضية</b><p>ضيف أول اسم أو الصق قائمة الأسماء مرة واحدة.</p></div>}
+                }):query.trim()?<div className="empty" role="status"><b>مفيش طالب مطابق للبحث</b><p>جرّب اسم تاني أو امسح البحث.</p></div>:<div className="empty"><Icon name="people" size={30}/><b>المجموعة دي لسه فاضية</b><p>ضيف أول اسم أو الصق قائمة الأسماء مرة واحدة.</p></div>}
               </section>
               {archivedPeople.length>0&&<details className="panel folded"><summary>الطلبة / العملاء المتوقفين ({archivedPeople.length})</summary>{archivedPeople.map(s=><div className="history-row" key={s.id}><div><b>{s.name}</b><small>متوقف بداية من {monthLabel(s.leftAt)}</small></div><div className="row-actions"><button className="btn secondary tiny" onClick={()=>toggleStudent(s)}><Icon name="restore" size={13}/> رجّعه</button>{canDeleteStudent(s,db.payments)&&<button className="icon-btn danger" onClick={()=>deleteStudent(s)} title="حذف نهائي"><Icon name="trash" size={14}/></button>}</div></div>)}</details>}
               <div className="group-options"><button className="link-btn" onClick={()=>toggleGroup(group)}><Icon name="archive" size={14}/> إيقاف المجموعة</button>{canDeleteGroup(group,db.students)&&<button className="link-btn destructive" onClick={()=>deleteGroup(group)}><Icon name="trash" size={14}/> حذف المجموعة الفاضية</button>}</div>
             </>}
           </>:<div className="panel empty group-empty"><Icon name="groups" size={32}/><b>لسه مفيش مجموعات نشطة</b><p>ضيف مجموعة باسم تختاره، زي ثالثة ثانوي أو باقة Premium.</p><button className="btn primary" onClick={()=>setModal({type:'group'})}>إضافة أول مجموعة</button></div>}
-          {archivedGroups.length>0&&<details className="panel folded"><summary>المجموعات المتوقفة ({archivedGroups.length})</summary>{archivedGroups.map(g=><div className="history-row" key={g.id}><div><b>{g.name}</b><small>متوقفة من {monthLabel(g.archivedAt)}</small></div><button className="btn secondary tiny" onClick={()=>toggleGroup(g)}><Icon name="restore" size={13}/> إعادة تفعيل</button></div>)}</details>}
+          {archivedGroups.length>0&&<details className="panel folded"><summary>المجموعات المتوقفة ({archivedGroups.length})</summary>{archivedGroups.map(g=><div className="history-row" key={g.id}><div><b>{g.name}</b><small>متوقفة من {monthLabel(g.archivedAt)} • المستحق: {money(groupCollections.get(g.id)?.due)}</small></div><button className="btn secondary tiny" onClick={()=>toggleGroup(g)}><Icon name="restore" size={13}/> إعادة تفعيل</button></div>)}</details>}
           <p className="note">الإعفاء والسعر الخاص من «تعديل» جنب اسم الطالب. الدفع الجزئي من زر «تحصيل». أرشفة الطالب بتحفظ سجلاته القديمة.</p>
         </>}
         {screen==='savings'&&<>

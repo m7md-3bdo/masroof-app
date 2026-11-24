@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { migrate, dueFor, collectionFor, activeInMonth, totalUncollected, setStudentPrice, setStudentGroup, setGroupPrice, groupAt, canDeleteStudent, canDeleteGroup } from './ledger.js';
+import { monthlyCollectionSummary, rankStudents, searchRankedStudents, normalizeStudentName, migrate, dueFor, collectionFor, activeInMonth, totalUncollected, setStudentPrice, setStudentGroup, setGroupPrice, groupAt, canDeleteStudent, canDeleteGroup } from './ledger.js';
 const OLD = {
   students: [
     { id: 'a', name: 'علي', grade: 'first', fee: 150, joinedAt: '2026-09', leftAt: null },
@@ -61,4 +61,45 @@ test('hard delete blocked if student has payments or group was ever used', () =>
 test('v4 imported backups remain compatible', () => {
   const roundtrip = migrate(JSON.parse(JSON.stringify(data)));
   assert.deepEqual(roundtrip, data);
+});
+
+test('monthly totals respect special rates, membership, archiving, and per-student overpayment', () => {
+  const month = '2026-11';
+  const standard = data.students[0];
+  const custom = setStudentPrice(data.students[1], month, 'custom', 60, 'one');
+  const exempt = setStudentPrice({...standard,id:'exempt'}, month, 'exempt', 0);
+  const stopped = {...standard,id:'stopped',leftAt:month};
+  const future = {...standard,id:'future',joinedAt:'2026-12'};
+  const moved = setStudentGroup({...standard,id:'moved'},month,'second');
+  const archivedGroup = {...data.groups[0],id:'archived',archivedAt:month};
+  const archived = {...standard,id:'archived-student',groupId:'archived',membership:[{month:'2026-09',groupId:'archived'}]};
+  const db = {...data,groups:[...data.groups,archivedGroup],students:[standard,custom,exempt,stopped,future,moved,archived],payments:[
+    {studentId:standard.id,month,amount:200}, {studentId:custom.id,month,amount:20},
+    {studentId:stopped.id,month,amount:30}, {studentId:exempt.id,month,amount:5},
+    {studentId:archived.id,month,amount:10}, {studentId:moved.id,month:'2026-10',amount:50},
+  ]};
+  const snapshot = structuredClone(db);
+  assert.deepEqual(monthlyCollectionSummary(db,month),{due:410,paid:265,remaining:240});
+  assert.deepEqual(monthlyCollectionSummary(db,month,'first'),{due:150,paid:235,remaining:0});
+  assert.deepEqual(monthlyCollectionSummary(db,month,'second'),{due:260,paid:20,remaining:240});
+  assert.deepEqual(monthlyCollectionSummary(db,month,'archived'),{due:0,paid:10,remaining:0});
+  assert.equal(totalUncollected(db,month),240);
+  assert.equal(monthlyCollectionSummary(db,'2026-10').due,850);
+  assert.deepEqual(monthlyCollectionSummary({...db,students:[],payments:[]},month),{due:0,paid:0,remaining:0});
+  assert.deepEqual(db,snapshot);
+});
+
+test('Arabic sorting, normalized search and stable full-list numbering', () => {
+  const students = [{id:'m',name:'مُصْطَفَى'},{id:'h',name:'فاطمة'},{id:'a',name:'أحمد'},{id:'e',name:'إيمان'},{id:'b',name:'باسم'}];
+  const snapshot = structuredClone(students);
+  const ranked = rankStudents(students);
+  assert.deepEqual(ranked.map(r=>r.student.id),['a','e','b','h','m']);
+  assert.deepEqual(searchRankedStudents(ranked,'  ايمان ').map(r=>r.number),[2]);
+  assert.deepEqual(searchRankedStudents(ranked,'فاطمه').map(r=>r.number),[4]);
+  assert.deepEqual(searchRankedStudents(ranked,'مصطفي').map(r=>r.number),[5]);
+  assert.deepEqual(searchRankedStudents(ranked,'آحمد').map(r=>r.number),[1]);
+  assert.deepEqual(searchRankedStudents(ranked,'غير موجود'),[]);
+  assert.deepEqual(searchRankedStudents(ranked,'  '),ranked);
+  assert.equal(normalizeStudentName('أَإِآا ةه ىي'),'اااا هه يي');
+  assert.deepEqual(students,snapshot);
 });

@@ -81,9 +81,39 @@ export function collectionFor(student, month, db) {
   const paid = receivedFor(student.id, month, db.payments);
   return { due, paid, remaining: Math.max(0, due - paid), exempt: ruleAt(student, month)?.type === 'exempt', overpaid: paid > due };
 }
+// Dues and arrears only count active students; receipts retain historical payments.
+export function monthlyCollectionSummary(db, month, groupId) {
+  const students = db.students.filter(s => groupId === undefined || groupAt(s, month) === groupId);
+  const ids = new Set(students.map(s => s.id));
+  const totals = { due: 0, paid: 0, remaining: 0 };
+  for (const s of students) {
+    if (!activeInMonth(s, month, db.groups)) continue;
+    const c = collectionFor(s, month, db);
+    totals.due += c.due;
+    totals.remaining += c.remaining;
+  }
+  totals.paid = db.payments.filter(p => p.month === month && (groupId === undefined || ids.has(p.studentId)))
+    .reduce((total, p) => total + (Number(p.amount) || 0), 0);
+  return totals;
+}
 export function totalUncollected(db, month) {
-  return db.students.filter(s => activeInMonth(s, month, db.groups))
-    .reduce((total, s) => total + collectionFor(s, month, db).remaining, 0);
+  return monthlyCollectionSummary(db, month).remaining;
+}
+
+// Search normalization is only for matching; saved names are never changed.
+export function normalizeStudentName(name) {
+  return String(name ?? '').normalize('NFKC').replace(/\p{M}/gu, '')
+    .replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+    .replace(/ـ/g, '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+const arabicNames = new Intl.Collator('ar', { sensitivity: 'base' });
+export function rankStudents(students) {
+  return [...students].sort((a, b) => arabicNames.compare(a.name, b.name) ||
+    String(a.id).localeCompare(String(b.id))).map((student, index) => ({ student, number: index + 1 }));
+}
+export function searchRankedStudents(ranked, query) {
+  const term = normalizeStudentName(query);
+  return ranked.filter(({ student }) => normalizeStudentName(student.name).includes(term));
 }
 // Preserve older entries. Replacing an entry at the same effective month is intentional.
 export function atEffectiveMonth(events, event) {
