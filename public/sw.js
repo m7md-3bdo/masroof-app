@@ -1,4 +1,4 @@
-const CACHE = 'masroof-lite-v5';
+const CACHE = 'masroof-lite-v6';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/masroof-192.png', '/icons/masroof-512.png'];
 
 self.addEventListener('install', event => {
